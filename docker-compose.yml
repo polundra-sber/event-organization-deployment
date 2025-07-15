@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  proxy:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  frontend:
+    image: tutibase/event-app-frontend:latest
+    expose:
+      - "3000"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    depends_on:
+      - app
+    environment:
+      - NEXT_PUBLIC_API_URL=http://app:8081
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+
+  app:
+    image: stanleystanmarsh/event-organization-app:1.0.2
+    ports:
+      - "8081:8081"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    depends_on:
+      - db
+    environment:
+      - SPRING_R2DBC_URL=r2dbc:postgresql://db:5432/event_organization
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    secrets:
+      - db_username
+      - db_password
+      - jwt_secret
+      - jwt_expiration_ms
+
+  db:
+    image: postgres:17
+    ports:
+      - "8083:5432"
+    environment:
+      - POSTGRES_DB=event_organization
+      - POSTGRES_USER=event_user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "event_user", "-d", "event_organization"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+secrets:
+  db_password:
+    external: true
+  db_username:  # необязательно, если не используется напрямую
+    external: true
+  jwt_secret:
+    external: true
+  jwt_expiration_ms:
+    external: true
+
+volumes:
+  db_data:
